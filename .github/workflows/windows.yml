@@ -1,0 +1,27 @@
+name: Windows build and verification
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify
+        shell: pwsh
+        run: ./scripts/Test.ps1
+      - name: Package executable and icon
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package -Force | Out-Null
+          Copy-Item -LiteralPath dist/SalaryClock.exe -Destination package/
+          Copy-Item -LiteralPath dist/电子猫.ico -Destination package/
+          Copy-Item -LiteralPath README.md -Destination package/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SalaryCat-Windows
+          path: package/
+
