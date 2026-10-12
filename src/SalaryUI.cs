@@ -10,14 +10,48 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace SalaryPet {
+    public enum CatMood { Normal, Smile, Confused, Sulky, Angry }
+    // Ephemeral animation state, deliberately separate from payroll and saved configuration.
+    public sealed class CatReaction {
+        public CatMood Mood {get;private set;}
+        int clicks;long lastClick,expires;
+        public void Click(long milliseconds,int gap){
+            Refresh(milliseconds);
+            if(Mood==CatMood.Angry)return;
+            if(clicks==0||milliseconds-lastClick>gap)clicks=0;
+            clicks=Math.Min(4,clicks+1);lastClick=milliseconds;expires=milliseconds+2000;
+            Mood=(CatMood)clicks;
+        }
+        public bool Refresh(long milliseconds){
+            if(Mood==CatMood.Normal||milliseconds<expires)return false;
+            Mood=CatMood.Normal;clicks=0;return true;
+        }
+    }
     public static class Art {
         public static Color Ink=Color.FromArgb(43,65,60),Muted=Color.FromArgb(105,120,118),Green=Color.FromArgb(74,122,103);
         public static GraphicsPath Round(Rectangle r,int radius){GraphicsPath p=new GraphicsPath();int d=radius*2;p.AddArc(r.X,r.Y,d,d,180,90);p.AddArc(r.Right-d,r.Y,d,d,270,90);p.AddArc(r.Right-d,r.Bottom-d,d,d,0,90);p.AddArc(r.X,r.Bottom-d,d,d,90,90);p.CloseFigure();return p;}
         public static void Text(Graphics g,string s,float size,Color color,float x,float y,string family="Microsoft YaHei UI"){using(Font f=new Font(family,size,FontStyle.Regular,GraphicsUnit.Pixel))using(Brush b=new SolidBrush(color))g.DrawString(s,f,b,x,y);}
-        public static void Cat(Graphics g,float x,float y,float s,int second){
+        public static void Cat(Graphics g,float x,float y,float s,int second,CatMood mood=CatMood.Normal){
             string[] sprite={"0110000000110","1111000011110","1111111111110","1111111111110","1111111111110","1111111111110","0111111111100","0011111111000"};
-            using(Brush b=new SolidBrush(Green))for(int row=0;row<sprite.Length;row++)for(int col=0;col<sprite[row].Length;col++)if(sprite[row][col]=='1')g.FillRectangle(b,x+col*s,y+row*s,s,s);
-            using(Brush b=new SolidBrush(Color.White)){float h=second%6==0?.55f*s:1.6f*s;g.FillRectangle(b,x+3*s,y+3.6f*s,s,h);g.FillRectangle(b,x+9*s,y+3.6f*s,s,h);g.FillRectangle(b,x+6*s,y+5.6f*s,s,.6f*s);}
+            using(Brush b=new SolidBrush(mood==CatMood.Angry?Color.FromArgb(192,87,88):Green))for(int row=0;row<sprite.Length;row++)for(int col=0;col<sprite[row].Length;col++)if(sprite[row][col]=='1')g.FillRectangle(b,x+col*s,y+row*s,s,s);
+            using(Pen p=new Pen(Color.White,.65f*s))using(Brush b=new SolidBrush(Color.White)){
+                if(mood==CatMood.Normal){float h=second%6==0?.55f*s:1.6f*s;g.FillRectangle(b,x+3*s,y+3.6f*s,s,h);g.FillRectangle(b,x+9*s,y+3.6f*s,s,h);g.FillRectangle(b,x+6*s,y+5.6f*s,s,.6f*s);}
+                else if(mood==CatMood.Smile){
+                    g.DrawLines(p,new[]{new PointF(x+2.5f*s,y+4.5f*s),new PointF(x+3.5f*s,y+3.7f*s),new PointF(x+4.5f*s,y+4.5f*s)});
+                    g.DrawLines(p,new[]{new PointF(x+8.5f*s,y+4.5f*s),new PointF(x+9.5f*s,y+3.7f*s),new PointF(x+10.5f*s,y+4.5f*s)});
+                    g.DrawArc(p,x+5*s,y+4.8f*s,3*s,1.7f*s,0,180);
+                }else if(mood==CatMood.Confused){
+                    g.FillRectangle(b,x+3*s,y+3.4f*s,s,1.8f*s);g.DrawLine(p,x+8.5f*s,y+4.1f*s,x+10.5f*s,y+4.1f*s);
+                    g.DrawEllipse(p,x+6*s,y+5.7f*s,s,s);Text(g,"?",3.6f*s,Green,x+12*s,y-1.8f*s,"Consolas");
+                }else if(mood==CatMood.Sulky){
+                    g.DrawLine(p,x+2.5f*s,y+3.9f*s,x+4.5f*s,y+4.4f*s);g.DrawLine(p,x+8.5f*s,y+4.4f*s,x+10.5f*s,y+3.9f*s);
+                    g.DrawArc(p,x+5.3f*s,y+5.8f*s,2.5f*s,1.2f*s,180,180);
+                }else{
+                    g.DrawLine(p,x+2.5f*s,y+3.3f*s,x+4.5f*s,y+4.2f*s);g.DrawLine(p,x+8.5f*s,y+4.2f*s,x+10.5f*s,y+3.3f*s);
+                    g.FillRectangle(b,x+3.5f*s,y+4.5f*s,.7f*s,s);g.FillRectangle(b,x+9*s,y+4.5f*s,.7f*s,s);
+                    g.DrawLines(p,new[]{new PointF(x+5*s,y+6.6f*s),new PointF(x+6.5f*s,y+5.8f*s),new PointF(x+8*s,y+6.6f*s)});
+                }
+            }
         }
         public static void Digits(Graphics g,string text,RectangleF box,Color color){
             float units=0;foreach(char ch in text)units+=ch=='.'?.22f:ch==':'?.25f:.60f;
@@ -105,7 +139,13 @@ namespace SalaryPet {
     public class ClockForm:Form {
         public Config Config;public Result Current;public readonly bool Preview;
         public MoneyBarForm MoneyBar{get;private set;}
-        Timer timer;NotifyIcon tray;ContextMenuStrip menu;Image wallpaper;PetButton overtime;
+        Timer timer,reactionTimer;NotifyIcon tray;ContextMenuStrip menu;Image wallpaper;PetButton overtime;
+        readonly CatReaction reaction=new CatReaction();
+        readonly System.Diagnostics.Stopwatch reactionClock=System.Diagnostics.Stopwatch.StartNew();
+        public static readonly Rectangle CatBounds=new Rectangle(172,28,47,30);
+        bool catPressed;
+        public CatMood Mood{get{return reaction.Mood;}}
+        public decimal DisplayedToday{get{return Mood==CatMood.Angry||Current==null?0m:Current.Today.Total;}}
         bool allowExit,promptOpen,positionDirty,initializing=true;DateTime positionChanged;
         public ClockForm(Config c,bool preview=false){
             Config=c;Preview=preview;Text="工资桌宠 · 东八区";Icon=Art.LoadIcon();ClientSize=new Size(230,193);
@@ -126,36 +166,56 @@ namespace SalaryPet {
             menu.Items.Add(new ToolStripSeparator());menu.Items.Add("退出",null,delegate{ExitPet();});
             tray=new NotifyIcon{Icon=Icon,Text="工资桌宠",ContextMenuStrip=menu,Visible=!Preview};tray.DoubleClick+=delegate{Restore();};
             timer=new Timer{Interval=1000};timer.Tick+=delegate{Tick();};
+            reactionTimer=new Timer{Interval=40};reactionTimer.Tick+=delegate{
+                if(reaction.Refresh(reactionClock.ElapsedMilliseconds)){reactionTimer.Stop();Tick();}
+            };
             Resize+=delegate{if(timer!=null){UpdateMoneyTitle();UpdateMoneyBar();}};
             Shown+=delegate{initializing=false;Tick();timer.Start();};
             LocationChanged+=delegate{if(!initializing&&!Preview&&WindowState==FormWindowState.Normal){positionDirty=true;positionChanged=DateTime.UtcNow;}};
-            MouseDown+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left){ReleaseCapture();SendMessage(Handle,0xA1,(IntPtr)2,IntPtr.Zero);}};
             FormClosing+=OnClosing;
-            FormClosed+=delegate{timer.Stop();timer.Dispose();tray.Visible=false;tray.Dispose();menu.Dispose();if(MoneyBar!=null){MoneyBar.Close();MoneyBar.Dispose();}if(wallpaper!=null)wallpaper.Dispose();};
+            FormClosed+=delegate{timer.Stop();timer.Dispose();reactionTimer.Stop();reactionTimer.Dispose();reactionClock.Stop();tray.Visible=false;tray.Dispose();menu.Dispose();if(MoneyBar!=null){MoneyBar.Close();MoneyBar.Dispose();}if(wallpaper!=null)wallpaper.Dispose();};
             ReloadBackground();Current=Payroll.Calculate(Config,Payroll.ChinaNow());MoneyBar=new MoneyBarForm(this);
         }
         [DllImport("user32.dll")]static extern bool ReleaseCapture();
         [DllImport("user32.dll")]static extern IntPtr SendMessage(IntPtr h,int msg,IntPtr w,IntPtr l);
+        protected override void OnMouseDown(MouseEventArgs e){
+            base.OnMouseDown(e);
+            if(e.Button!=MouseButtons.Left)return;
+            if(CatBounds.Contains(e.Location)){catPressed=true;Capture=true;return;}
+            ReleaseCapture();SendMessage(Handle,0xA1,(IntPtr)2,IntPtr.Zero);
+        }
+        protected override void OnMouseUp(MouseEventArgs e){
+            base.OnMouseUp(e);
+            if(e.Button!=MouseButtons.Left)return;
+            bool click=catPressed&&CatBounds.Contains(e.Location);catPressed=false;Capture=false;
+            if(click){reaction.Click(reactionClock.ElapsedMilliseconds,SystemInformation.DoubleClickTime);reactionTimer.Start();Tick();}
+        }
+        protected override void OnMouseCaptureChanged(EventArgs e){base.OnMouseCaptureChanged(e);if(!Capture)catPressed=false;}
+        protected override void OnMouseMove(MouseEventArgs e){base.OnMouseMove(e);Cursor=CatBounds.Contains(e.Location)?Cursors.Hand:Cursors.Default;}
+        string ReactionText{get{
+            switch(Mood){case CatMood.Smile:return "嘿嘿，摸摸头真开心";case CatMood.Confused:return "喵？怎么又点我啦";case CatMood.Sulky:return "哼，我有一点小情绪";case CatMood.Angry:return "生气！金额暂时归零";default:return Current==null?"":Current.State;}
+        }}
         void UpdateMoneyTitle(){
             if(Current==null)return;
-            string money="¥"+Current.Today.Total.ToString("F"+Config.Decimals,CultureInfo.InvariantCulture);
+            string money="¥"+DisplayedToday.ToString("F"+Config.Decimals,CultureInfo.InvariantCulture);
             Text=WindowState==FormWindowState.Minimized?money:"工资桌宠 · 东八区";
         }
         void UpdateMoneyBar(){
             if(MoneyBar==null||MoneyBar.IsDisposed||Current==null)return;
             if(Config.TaskbarMoneyBar&&ShowInTaskbar&&WindowState==FormWindowState.Minimized){
-                MoneyBar.RefreshMoney("¥"+Current.Today.Total.ToString("F"+Config.Decimals,CultureInfo.InvariantCulture));
+                MoneyBar.RefreshMoney("¥"+DisplayedToday.ToString("F"+Config.Decimals,CultureInfo.InvariantCulture));
                 if(!MoneyBar.Visible)MoneyBar.Show();
             }else MoneyBar.Hide();
         }
         public void Tick(){
+            if(reaction.Refresh(reactionClock.ElapsedMilliseconds))reactionTimer.Stop();
             if(!Preview&&Program.RestoreSignal!=null&&Program.RestoreSignal.WaitOne(0)){Restore();return;}
             DateTime now=Payroll.ChinaNow();Current=Payroll.Calculate(Config,now);
-            string money="¥"+Current.Today.Total.ToString("F"+Config.Decimals,CultureInfo.InvariantCulture);
+            string money="¥"+DisplayedToday.ToString("F"+Config.Decimals,CultureInfo.InvariantCulture);
             UpdateMoneyTitle();
             UpdateMoneyBar();
             tray.Text=money;overtime.Text=Payroll.LiveSession(Config,now)==null?"加班":"结束加班";
-            AccessibleDescription="今日已赚 "+money+"；本月累计 "+Current.Month.ToString("F2")+"；"+Current.State;
+            AccessibleDescription="今日已赚 "+money+"；本月累计 "+Current.Month.ToString("F2")+"；"+ReactionText;
             if(WindowState!=FormWindowState.Minimized)Invalidate();
             if(!Preview&&positionDirty&&(DateTime.UtcNow-positionChanged).TotalSeconds>=2){try{Store.Change(Config,delegate{Config.Left=Location.X;Config.Top=Location.Y;});positionDirty=false;}catch{positionDirty=false;}}
             if(!Preview&&!promptOpen&&OwnedForms.Length==0&&Payroll.ShouldPrompt(Config,now))AskTonight();
@@ -231,17 +291,17 @@ namespace SalaryPet {
             Result r=Current;if(r==null)return;
             Art.Text(g,"本月累计 · "+r.Now.ToString("MM月"),10,Art.Muted,14,9);
             string month="¥ "+r.Month.ToString("F2",CultureInfo.InvariantCulture);float monthSize=month.Length>11?16:21;
-            Art.Text(g,month,monthSize,Art.Ink,12,29,"Consolas");Art.Cat(g,177,32,2.6f,r.Now.Second);
+            Art.Text(g,month,monthSize,Art.Ink,12,29,"Consolas");Art.Cat(g,177,32,2.6f,r.Now.Second,Mood);
             Rectangle lcd=new Rectangle(12,64,206,78);
             using(GraphicsPath p=Art.Round(lcd,12))using(Brush b=new SolidBrush(Color.FromArgb(238,246,247,243)))g.FillPath(b,p);
             Art.Text(g,"今日已赚",10,Art.Muted,25,69);Art.Text(g,"CNY",8,Art.Muted,184,71,"Consolas");
-            Art.Digits(g,r.Today.Total.ToString("F"+Config.Decimals,CultureInfo.InvariantCulture),new RectangleF(24,90,182,30),Art.Ink);
+            Art.Digits(g,DisplayedToday.ToString("F"+Config.Decimals,CultureInfo.InvariantCulture),new RectangleF(24,90,182,30),Art.Ink);
             string weekday=new string[]{"日","一","二","三","四","五","六"}[(int)r.Now.DayOfWeek];
             Art.Text(g,r.Now.ToString("MM.dd")+" 周"+weekday,8.5f,Art.Muted,25,130);
             Art.Digits(g,r.Now.ToString("HH:mm:ss"),new RectangleF(96,129,73,10),Art.Green);
             Art.Text(g,"UTC+8",7.5f,Art.Muted,177,131,"Consolas");
             using(Brush b=new SolidBrush(r.ActiveOvertime||r.State.StartsWith("工作中")?Art.Green:Color.FromArgb(146,160,154)))g.FillEllipse(b,16,152,4,4);
-            Art.Text(g,r.State,9.2f,Art.Ink,27,146);
+            Art.Text(g,ReactionText,9.2f,Art.Ink,27,146);
         }
     }
     public class OvertimeAskForm:WhiteForm {

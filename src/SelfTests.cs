@@ -9,6 +9,14 @@ using System.Threading;
 using System.Windows.Forms;
 
 namespace SalaryPet {
+    sealed class ClickableTestClock:ClockForm {
+        public ClickableTestClock(Config c):base(c,true){}
+        public void Tap(int clicks,Point release){
+            Point head=new Point(190,42);
+            OnMouseDown(new MouseEventArgs(MouseButtons.Left,clicks,head.X,head.Y,0));
+            OnMouseUp(new MouseEventArgs(MouseButtons.Left,clicks,release.X,release.Y,0));
+        }
+    }
     public static class SelfTests {
         static List<string> passed=new List<string>();
         static Config Reference(){return new Config{MonthlySalary=6000m,AttendanceBonus=600m,HireDate="2020-10-08",DoubleWeekMonday="2020-10-12",OvertimeRate=21m,MealAllowance=10m,AttendanceEnabled=false,Overtime=new List<Overtime>{new Overtime{Date="2020-10-08",Hours=2m},new Overtime{Date="2020-10-09",Hours=1m},new Overtime{Date="2020-10-10",Hours=3m},new Overtime{Date="2020-10-11",Hours=4m}}};}
@@ -16,6 +24,44 @@ namespace SalaryPet {
         static bool Near(decimal a,decimal b){return Math.Abs(a-b)<0.00000001m;}
         static DateTime At(int d,int h,int m=0,int s=0){return new DateTime(2020,10,d,h,m,s);}
         static Result Pay(Config c,int d,int h,int m=0,int s=0){return Payroll.Calculate(c,At(d,h,m,s));}
+        public static void CatUI(string folder){
+            Directory.CreateDirectory(folder);
+            CatReaction chain=new CatReaction();
+            chain.Click(1000,500);chain.Click(1500,500);chain.Click(2000,500);chain.Click(2500,500);
+            if(chain.Mood!=CatMood.Angry||chain.Refresh(4499))throw new Exception("四击或两秒边界错误");
+            chain.Click(3000,500);if(!chain.Refresh(4500)||chain.Mood!=CatMood.Normal)throw new Exception("生气期间点击延长了归零时间");
+            chain.Click(5000,500);chain.Click(5501,500);if(chain.Mood!=CatMood.Smile)throw new Exception("分开的点击被错误合并");
+            Config c=new Config{AskOvertime=false,MonthlySalary=6000m,AttendanceEnabled=false,HireDate="2020-01-01"};c.Overtime.Clear();
+            string configuration=new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(c);
+            using(ClickableTestClock clock=new ClickableTestClock(c)){
+                clock.Show();Application.DoEvents();
+                clock.Current=Payroll.Calculate(c,new DateTime(2020,10,12,17,0,0));
+                Art.Snapshot(clock,Path.Combine(folder,"猫猫-正常.png"));
+                CatMood[] moods={CatMood.Smile,CatMood.Confused,CatMood.Sulky,CatMood.Angry};
+                string[] labels={"微笑","疑惑","小情绪","生气"};
+                for(int i=0;i<4;i++){
+                    clock.Tap(i%2+1,new Point(190,42));Application.DoEvents();
+                    if(clock.Mood!=moods[i])throw new Exception("真实鼠标抬起未计入第"+(i+1)+"击");
+                    clock.Current=Payroll.Calculate(c,new DateTime(2020,10,12,17,0,0));
+                    if((i==3&&clock.DisplayedToday!=0m)||(i<3&&clock.DisplayedToday!=clock.Current.Today.Total))throw new Exception("互动金额显示错误");
+                    Art.Snapshot(clock,Path.Combine(folder,"猫猫-"+labels[i]+".png"));
+                }
+                decimal realToday=clock.Current.Today.Total,realMonth=clock.Current.Month;
+                if(realToday<=0m)throw new Exception("未使用正收入验证临时清零");
+                clock.WindowState=FormWindowState.Minimized;
+                if(clock.Text!="¥0.00"||clock.MoneyBar.Text!="¥0.00")throw new Exception("生气归零未同步任务栏");
+                if(clock.Current.Today.Total!=realToday||clock.Current.Month!=realMonth||configuration!=new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(c))throw new Exception("互动修改了工资记录");
+                clock.Tap(1,new Point(190,42));
+                System.Diagnostics.Stopwatch elapsed=System.Diagnostics.Stopwatch.StartNew();
+                while(clock.Mood!=CatMood.Normal&&elapsed.ElapsedMilliseconds<2400){Application.DoEvents();Thread.Sleep(10);}
+                if(clock.Mood!=CatMood.Normal||clock.DisplayedToday!=clock.Current.Today.Total||clock.Text!="¥"+clock.Current.Today.Total.ToString("F2",CultureInfo.InvariantCulture)||clock.MoneyBar.Text!=clock.Text)throw new Exception("两秒后未自动恢复真实金额");
+                clock.WindowState=FormWindowState.Normal;
+                clock.Tap(1,new Point(140,42));if(clock.Mood!=CatMood.Normal)throw new Exception("拖出猫头仍触发了点击");
+                clock.Tap(1,new Point(190,42));if(clock.Mood!=CatMood.Smile)throw new Exception("恢复后不能开始新一轮点击");
+                clock.Close();
+            }
+            File.WriteAllText(Path.Combine(folder,"猫猫互动验证结果.txt"),"通过：1/2/3/4击表情、双击鼠标事件、连续点击时间边界、四击临时归零、任务栏金额同步、两秒自动恢复、工资与配置不变、拖出取消点击、恢复后重新点击。",new UTF8Encoding(false));
+        }
         public static void Run(){
             Config c=Reference();c.LunchEnabled=true;Payroll.Validate(c);
             Check(!Payroll.Scheduled(c,At(17,0))&&Payroll.Scheduled(c,At(10,0))&&!Payroll.Scheduled(c,At(11,0)),"单双休锚点与跨周计算");
