@@ -1,0 +1,16 @@
+dist/
+work/
+*.exe
+*.pdb
+*.lnk
+*.zip
+计薪设置.json
+计薪设置.json.tmp
+背景/
+运行错误.txt
+*测试配置.json
+测试数据.json
+*验证结果.txt
+测试背景.png
+背景验证预览.png
+
