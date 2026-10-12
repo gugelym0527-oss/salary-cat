@@ -61,6 +61,7 @@ namespace SalaryPet {
                 if(args.Length==2&&args[0]=="--make-icon"){Art.WriteIcon(args[1]);return;}
                 if(args.Length>0&&args[0]=="--self-test"){SelfTests.Run();return;}
                 if(args.Length==2&&args[0]=="--cat-test"){SelfTests.CatUI(args[1]);return;}
+                if(args.Length==2&&args[0]=="--settle-test"){SelfTests.Settlement(args[1]);return;}
                 if(args.Length==2&&args[0]=="--ui-test"){SelfTests.UI(args[1]);return;}
                 if(args.Length==2&&args[0]=="--restore-test"){SelfTests.RestoreUI(args[1]);return;}
                 Config c=Store.Load();

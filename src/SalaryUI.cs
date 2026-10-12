@@ -139,7 +139,7 @@ namespace SalaryPet {
     public class ClockForm:Form {
         public Config Config;public Result Current;public readonly bool Preview;
         public MoneyBarForm MoneyBar{get;private set;}
-        Timer timer,reactionTimer;NotifyIcon tray;ContextMenuStrip menu;Image wallpaper;PetButton overtime;
+        Timer timer,reactionTimer;NotifyIcon tray;ContextMenuStrip menu;Image wallpaper;PetButton overtime,earlyLeave;
         readonly CatReaction reaction=new CatReaction();
         readonly System.Diagnostics.Stopwatch reactionClock=System.Diagnostics.Stopwatch.StartNew();
         public static readonly Rectangle CatBounds=new Rectangle(172,28,47,30);
@@ -157,10 +157,10 @@ namespace SalaryPet {
             min.AccessibleName="最小化到任务栏，标题显示今日金额";min.Click+=delegate{ShowInTaskbar=true;WindowState=FormWindowState.Minimized;};
             close.AccessibleName=c.CloseToTray?"收起到系统托盘":"退出工资桌宠";close.Click+=delegate{Close();};
             PetButton settings=new PetButton("设置"){Bounds=new Rectangle(12,164,55,23)};settings.Click+=delegate{OpenSettings();};
-            PetButton detail=new PetButton("明细"){Bounds=new Rectangle(73,164,55,23)};detail.Click+=delegate{using(DetailForm f=new DetailForm(Config))f.ShowDialog(this);};
-            overtime=new PetButton("加班"){Bounds=new Rectangle(134,164,84,23)};overtime.Click+=delegate{ToggleOvertime();};
-            foreach(PetButton button in new[]{min,close,settings,detail,overtime}){button.Font=new Font("Microsoft YaHei UI",10f,FontStyle.Regular,GraphicsUnit.Pixel);button.Padding=Padding.Empty;button.TextAlign=ContentAlignment.MiddleCenter;}
-            Controls.AddRange(new Control[]{min,close,settings,detail,overtime});
+            overtime=new PetButton("加班"){Bounds=new Rectangle(73,164,55,23)};overtime.Click+=delegate{ToggleOvertime();};
+            earlyLeave=new PetButton("提前下班"){Bounds=new Rectangle(134,164,84,23),AccessibleName="提前下班，立即结算全天底薪和已完成加班"};earlyLeave.Click+=delegate{ToggleSettlement();};
+            foreach(PetButton button in new[]{min,close,settings,overtime,earlyLeave}){button.Font=new Font("Microsoft YaHei UI",10f,FontStyle.Regular,GraphicsUnit.Pixel);button.Padding=Padding.Empty;button.TextAlign=ContentAlignment.MiddleCenter;}
+            Controls.AddRange(new Control[]{min,close,settings,overtime,earlyLeave});
             menu=new ContextMenuStrip();menu.Items.Add("显示桌宠",null,delegate{Restore();});menu.Items.Add("设置",null,delegate{Restore();OpenSettings();});
             menu.Items.Add("工资明细 / 导出",null,delegate{using(DetailForm f=new DetailForm(Config))f.ShowDialog();});menu.Items.Add("开始 / 结束加班",null,delegate{ToggleOvertime();});
             menu.Items.Add(new ToolStripSeparator());menu.Items.Add("退出",null,delegate{ExitPet();});
@@ -215,6 +215,9 @@ namespace SalaryPet {
             UpdateMoneyTitle();
             UpdateMoneyBar();
             tray.Text=money;overtime.Text=Payroll.LiveSession(Config,now)==null?"加班":"结束加班";
+            bool settled=Payroll.IsSettled(Config,now);earlyLeave.Text=settled?"撤销结算":"提前下班";
+            earlyLeave.Enabled=settled||Payroll.CanSettle(Config,now);overtime.Enabled=!settled;
+            earlyLeave.AccessibleName=settled?"撤销今日结算，恢复按实际时间计薪":"提前下班，立即结算全天底薪和已完成加班";
             AccessibleDescription="今日已赚 "+money+"；本月累计 "+Current.Month.ToString("F2")+"；"+ReactionText;
             if(WindowState!=FormWindowState.Minimized)Invalidate();
             if(!Preview&&positionDirty&&(DateTime.UtcNow-positionChanged).TotalSeconds>=2){try{Store.Change(Config,delegate{Config.Left=Location.X;Config.Top=Location.Y;});positionDirty=false;}catch{positionDirty=false;}}
@@ -231,9 +234,17 @@ namespace SalaryPet {
             }catch(Exception ex){MessageBox.Show("无法保存加班选择："+ex.Message,"工资桌宠");}
             finally{promptOpen=false;Current=Payroll.Calculate(Config,Payroll.ChinaNow());Invalidate();}
         }
+        public void ToggleSettlement(){
+            try{
+                DateTime now=Payroll.ChinaNow();
+                Store.Change(Config,delegate{if(Payroll.IsSettled(Config,now))Payroll.UndoSettlement(Config,now);else Payroll.Settle(Config,now);});
+                Tick();
+            }catch(Exception ex){MessageBox.Show("结算操作未保存："+ex.Message,"工资桌宠");}
+        }
         void ToggleOvertime(){
             try{
                 DateTime now=Payroll.ChinaNow();
+                if(Payroll.IsSettled(Config,now)){MessageBox.Show("今日已结算，请先点击“撤销结算”再开始加班。","工资桌宠");return;}
                 if(Payroll.LiveSession(Config,now)!=null)Store.Change(Config,delegate{Payroll.Stop(Config,now);});
                 else{
                     string time=Config.OvertimeStart;
@@ -336,6 +347,8 @@ namespace SalaryPet {
             BuildPay(pay);BuildTime(time);BuildOvertime(overtime);BuildCalendar(calendar);BuildAppearance(appearance);BuildSystem(system);BuildAttendance(attendance);
             PetButton save=ButtonAt(this,"保存并返回",482,613,143,30),cancel=ButtonAt(this,"取消",381,613,90,30);
             save.Anchor=cancel.Anchor=AnchorStyles.Right|AnchorStyles.Bottom;save.Click+=delegate{SaveAll();};cancel.Click+=delegate{DialogResult=DialogResult.Cancel;Close();};CancelButton=cancel;
+            PetButton details=ButtonAt(this,"工资明细 / 导出",15,613,155,30);details.Anchor=AnchorStyles.Left|AnchorStyles.Bottom;
+            details.Click+=delegate{using(DetailForm detail=new DetailForm(original))detail.ShowDialog(this);};
             LoadMonth();UpdateRate();
         }
         TabPage Page(string name){TabPage p=new TabPage(name){BackColor=Color.White,AutoScroll=true};tabs.TabPages.Add(p);return p;}

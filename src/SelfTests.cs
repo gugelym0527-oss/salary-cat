@@ -62,6 +62,49 @@ namespace SalaryPet {
             }
             File.WriteAllText(Path.Combine(folder,"猫猫互动验证结果.txt"),"通过：1/2/3/4击表情、双击鼠标事件、连续点击时间边界、四击临时归零、任务栏金额同步、两秒自动恢复、工资与配置不变、拖出取消点击、恢复后重新点击。",new UTF8Encoding(false));
         }
+        public static void Settlement(string folder){
+            Directory.CreateDirectory(folder);List<string> checks=new List<string>();
+            Action<bool,string> verify=delegate(bool ok,string label){if(!ok)throw new Exception(label);checks.Add(label);};
+            Config c=new Config{MonthlySalary=6000m,HireDate="2020-10-01",DoubleWeekMonday="2020-10-12",AttendanceEnabled=false,CapBase=false};
+            c.Overtime.Clear();c.Calendar.Clear();c.Sessions.Clear();c.Decisions.Clear();
+            DateTime at=new DateTime(2020,10,12,16,0,0);Result before=Payroll.Calculate(c,at);
+            Payroll.Settle(c,at);Result done=Payroll.Calculate(c,at);decimal day=6000m/21.75m;
+            verify(Near(done.Today.Base,day)&&Near(done.Month-before.Month,day-before.Today.Base),"结算立即补满当天底薪，月累计只增加差额");
+            verify(!Payroll.ShouldPrompt(c,at.Date.AddHours(19))&&done.State.Contains("已结算"),"结算状态可见，19点不再询问加班");
+            Payroll.Settle(c,at.AddMinutes(1));verify(c.EarlyClosures.Count==1&&Near(Payroll.Calculate(c,at.AddHours(7)).Today.Total,done.Today.Total),"重复结算不重复计薪，全天金额不再增长");
+            Payroll.UndoSettlement(c,at);verify(Near(Payroll.Calculate(c,at).Today.Base,before.Today.Base)&&Payroll.ShouldPrompt(c,at.Date.AddHours(19)),"撤销恢复实际时间计薪和加班询问");
+            c.Mode="calendar";Payroll.Settle(c,at);verify(Near(Payroll.Calculate(c,at).Today.Base,6000m/Payroll.CalendarDays(c,at)),"当月应出勤天数折算也按全天底薪结算");
+            c.CapBase=true;c.CompanyDays["2020-10"]=1m;verify(Near(Payroll.Calculate(c,at).MonthBase,6000m),"提前结算仍遵守月薪封顶");
+            c.CompanyDays.Clear();c.CapBase=false;Payroll.UndoSettlement(c,at);c.Mode="fixed";c.LunchEnabled=true;Payroll.Settle(c,at);
+            verify(Near(Payroll.Calculate(c,at).Today.Base,day),"扣午休模式也补满全天底薪");
+            c.LunchEnabled=false;Payroll.UndoSettlement(c,at);Payroll.Decide(c,at.Date.AddHours(19),true);Payroll.Settle(c,at);
+            verify(Near(Payroll.Calculate(c,at.Date.AddHours(22)).Today.Meal,0)&&Near(Payroll.Calculate(c,at.Date.AddHours(22)).Today.Overtime,0)&&Payroll.LiveSession(c,at)==null,"尚未开始的加班取消，不虚增加班费或餐补");
+            c.Sessions.Clear();c.Decisions.Clear();Payroll.UndoSettlement(c,at);Payroll.Decide(c,at.Date.AddHours(19),true);DateTime late=at.Date.AddHours(21.5);
+            Payroll.Settle(c,late);Result paid=Payroll.Calculate(c,late);verify(Near(paid.Today.Overtime,1.5m*c.OvertimeRate)&&Near(paid.Today.Meal,c.MealAllowance)&&Near(Payroll.Calculate(c,at.Date.AddHours(23)).Today.Total,paid.Today.Total),"进行中的加班按已完成时长结算，餐补一次，后续停止增长");
+            c.AttendanceEnabled=true;c.AttendanceMode="monthly";verify(Near(Payroll.Calculate(c,late).MonthAttendance,0),"提前下班不提前发放月底全勤奖");
+            verify(!Payroll.IsSettled(c,at.AddDays(1)),"次日自动恢复正常计薪");
+            bool rejected=false;try{Payroll.Settle(c,new DateTime(2020,10,11,16,0,0));}catch{rejected=true;}verify(rejected,"休息日不能凭空结算底薪");
+            c.Calendar.Add(new DayRule{Date="2020-10-13",Kind="leave"});rejected=false;try{Payroll.Settle(c,at.AddDays(1));}catch{rejected=true;}verify(rejected,"请假日不能提前结算底薪");
+            string old=Store.PathName;Store.PathName=Path.Combine(folder,"提前下班测试配置.json");
+            try{
+                Store.Save(c);Config loaded=Store.Load();verify(Near(Payroll.Calculate(loaded,late).Today.Total,Payroll.Calculate(c,late).Today.Total)&&Payroll.IsSettled(loaded,late),"关闭重启后保留结算记录和金额");
+                loaded.EarlyClosures=null;File.WriteAllText(Store.PathName,new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(loaded));verify(Store.Load().EarlyClosures!=null,"兼容旧配置中的空结算字段");
+                Config ui=new Config{MonthlySalary=6000m,HireDate="2020-01-01",AttendanceEnabled=false,AskOvertime=false,CapBase=false,WorkStart="00:00"};ui.Overtime.Clear();ui.Calendar.Add(new DayRule{Date=Payroll.ChinaNow().ToString("yyyy-MM-dd"),Kind="work"});Store.Save(ui);
+                using(ClockForm clock=new ClockForm(ui,true)){
+                    clock.Show();Application.DoEvents();Button settle=clock.Controls.OfType<Button>().Single(b=>b.Text=="提前下班");settle.PerformClick();
+                    verify(Payroll.IsSettled(ui,Payroll.ChinaNow())&&settle.Text=="撤销结算"&&Near(clock.DisplayedToday,clock.Current.DayRate),"主界面按钮一键结算并显示撤销入口");
+                    foreach(Button b in clock.Controls.OfType<Button>().Where(b=>b.Top>140))verify(b.Height>=b.Font.Height+6&&clock.Region.IsVisible(b.Left,b.Top)&&clock.Region.IsVisible(b.Right-1,b.Bottom-1),"底部按钮完整可见："+b.Text);
+                    verify(clock.Controls.OfType<Button>().Count(b=>b.Top>140)==3&&!clock.Controls.OfType<Button>().Any(b=>b.Text=="明细"),"主界面仅显示设置、加班、提前下班");
+                    Art.Snapshot(clock,Path.Combine(folder,"提前下班-已结算.png"));clock.WindowState=FormWindowState.Minimized;
+                    verify(clock.Text=="¥"+clock.DisplayedToday.ToString("F2",CultureInfo.InvariantCulture)&&clock.MoneyBar.Text==clock.Text,"任务栏立即同步结算金额");
+                    clock.WindowState=FormWindowState.Normal;settle.PerformClick();verify(!Payroll.IsSettled(ui,Payroll.ChinaNow())&&settle.Text=="提前下班","撤销按钮恢复计时状态");
+                    Art.Snapshot(clock,Path.Combine(folder,"提前下班-主界面.png"));
+                    using(SettingsForm settings=new SettingsForm(ui,true)){settings.Show();Application.DoEvents();Button details=settings.Controls.OfType<Button>().Single(b=>b.Text=="工资明细 / 导出");verify(details.Visible&&settings.ClientRectangle.Contains(details.Bounds),"明细入口移入设置且完整可见");Art.Snapshot(settings,Path.Combine(folder,"提前下班-设置入口.png"));settings.Close();}
+                    clock.Close();
+                }
+            }finally{Store.PathName=old;}
+            File.WriteAllLines(Path.Combine(folder,"提前下班验证结果.txt"),new[]{"全部通过："+checks.Count+"项提前结算与界面验证"}.Concat(checks),new UTF8Encoding(false));
+        }
         public static void Run(){
             Config c=Reference();c.LunchEnabled=true;Payroll.Validate(c);
             Check(!Payroll.Scheduled(c,At(17,0))&&Payroll.Scheduled(c,At(10,0))&&!Payroll.Scheduled(c,At(11,0)),"单双休锚点与跨周计算");
