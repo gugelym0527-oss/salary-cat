@@ -1,9 +1,9 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 & (Join-Path $repoRoot 'Build.ps1')
 $outputFolder = Join-Path $repoRoot 'dist'
 $executablePath = Join-Path $outputFolder 'SalaryClock.exe'
-foreach ($testMode in @('--self-test','--ui-test','--restore-test','--cat-test','--settle-test')) {
+foreach ($testMode in @('--self-test','--ui-test','--restore-test','--cat-test','--settle-test','--start-test')) {
     $testArgs = @($testMode)
     if ($testMode -ne '--self-test') { $testArgs += '"' + $outputFolder + '"' }
     $testProcess = Start-Process -FilePath $executablePath -ArgumentList $testArgs -WindowStyle Hidden -Wait -PassThru
