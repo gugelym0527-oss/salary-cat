@@ -259,12 +259,12 @@ namespace SalaryPet {
                 if(Payroll.IsSettled(Config,now)){MessageBox.Show("今日已结算，请先点击“撤销结算”再开始加班。","工资桌宠");return;}
                 if(Payroll.LiveSession(Config,now)!=null)Store.Change(Config,delegate{Payroll.Stop(Config,now);});
                 else{
-                    string time=Config.OvertimeStart;
-                    string extra=now.TimeOfDay<Payroll.Time(time)?"将在 "+time+" 开始计时。":"将从现在开始计时（早于 "+time+" 不计加班）。";
+                    TimeSpan overtimeTime=Payroll.OvertimeStartToday(Config,now);string time=overtimeTime.ToString(@"hh\:mm");
+                    string extra=now.TimeOfDay<overtimeTime?"将在 "+time+" 开始计时。":"将从现在开始计时（早于 "+time+" 不计加班）。";
                     if(MessageBox.Show("要开始本次加班吗？\n"+extra,"加班计时",MessageBoxButtons.YesNo,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
                     Store.Change(Config,delegate{
                         Config.Decisions[now.ToString("yyyy-MM-dd")]="yes";
-                        DateTime start=now>now.Date+Payroll.Time(time)?now:now.Date+Payroll.Time(time);
+                        DateTime start=now>now.Date+overtimeTime?now:now.Date+overtimeTime;
                         Config.Sessions.Add(new Session{Date=now.ToString("yyyy-MM-dd"),Start=Payroll.Stamp(start),End=""});
                     });
                 }
@@ -331,8 +331,8 @@ namespace SalaryPet {
         public OvertimeAskForm(Config c){
             Text="电子猫 · 今日加班询问";ClientSize=new Size(370,217);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;MinimizeBox=false;TopMost=true;StartPosition=FormStartPosition.CenterScreen;
             LabelAt(this,"今天要加班吗？",25,29,280,35,17f);
-            string time=c.OvertimeStart;string message="选“是”：从 "+time+" 开始计加班与当日餐补。\n选“否”或关闭：今天不自动计加班。";
-            if(Payroll.ChinaNow().TimeOfDay>Payroll.Time(time))message+="\n现在已过起点，选“是”会从 "+time+" 追计。";
+            DateTime now=Payroll.ChinaNow();TimeSpan overtimeTime=Payroll.OvertimeStartToday(c,now);string time=overtimeTime.ToString(@"hh\:mm");string message="选“是”：从 "+time+" 开始计加班与当日餐补。\n选“否”或关闭：今天不自动计加班。";
+            if(now.TimeOfDay>overtimeTime)message+="\n现在已过起点，选“是”会从 "+time+" 追计。";
             LabelAt(this,message,25,76,323,76,9f);
             PetButton yes=ButtonAt(this,"是，要加班",25,164,155),no=ButtonAt(this,"否，今天不加班",190,164,155);
             yes.DialogResult=DialogResult.Yes;no.DialogResult=DialogResult.No;AcceptButton=no;CancelButton=no;

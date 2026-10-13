@@ -111,15 +111,33 @@ namespace SalaryPet {
             return Math.Min(DailySeconds(c),early+Segment(d,now,Time(c.WorkStart),Time(c.LunchStart))+Segment(d,now,Time(c.LunchEnd),Time(c.WorkEnd)));
         }
         public static bool IsEarlyStarted(Config c,DateTime now){string at;return c.EarlyStarts.TryGetValue(now.ToString("yyyy-MM-dd"),out at)&&now>=Stamp(at);}
+        public static TimeSpan ShiftedTime(Config c,DateTime now,string normal){
+            TimeSpan time=Time(normal);string at;
+            if(c.EarlyStarts.TryGetValue(now.ToString("yyyy-MM-dd"),out at)&&now>=Stamp(at)){
+                TimeSpan advance=Time(c.WorkStart)-Stamp(at).TimeOfDay;
+                if(advance>TimeSpan.Zero)time-=advance;
+            }
+            return time<TimeSpan.Zero?TimeSpan.Zero:time;
+        }
+        public static TimeSpan WorkEndToday(Config c,DateTime now){return ShiftedTime(c,now,c.WorkEnd);}
+        public static TimeSpan OvertimeStartToday(Config c,DateTime now){return ShiftedTime(c,now,c.OvertimeStart);}
+        public static TimeSpan PromptToday(Config c,DateTime now){return ShiftedTime(c,now,c.PromptTime);}
+        static void ShiftWaitingOvertime(Config c,DateTime now,TimeSpan oldTime,TimeSpan newTime){
+            foreach(Session session in c.Sessions.Where(s=>Date(s.Date)==now.Date&&String.IsNullOrEmpty(s.End)&&Stamp(s.Start)>now&&Stamp(s.Start)==now.Date+oldTime))session.Start=Stamp(now.Date+newTime);
+        }
         public static bool CanStartEarly(Config c,DateTime now){return now.Date>=Date(c.HireDate)&&Scheduled(c,now.Date)&&DayType(c,now.Date)!="请假"&&now.TimeOfDay<Time(c.WorkStart)&&!IsSettled(c,now);}
         public static void StartEarly(Config c,DateTime now){
             if(IsEarlyStarted(c,now))return;
             if(!CanStartEarly(c,now))throw new Exception("仅应出勤日的正常上班时间前可提前上班，请假日不适用。");
+            TimeSpan oldTime=OvertimeStartToday(c,now);
             c.EarlyStarts[now.ToString("yyyy-MM-dd")]=Stamp(now);
+            ShiftWaitingOvertime(c,now,oldTime,OvertimeStartToday(c,now));
         }
         public static void UndoEarlyStart(Config c,DateTime now){
             if(IsSettled(c,now))throw new Exception("今日已结算，请先撤销结算后再撤销提前上班。");
+            TimeSpan oldTime=OvertimeStartToday(c,now);
             c.EarlyStarts.Remove(now.ToString("yyyy-MM-dd"));
+            ShiftWaitingOvertime(c,now,oldTime,OvertimeStartToday(c,now));
         }
         public static Session LiveSession(Config c,DateTime now){return c.Sessions.LastOrDefault(s=>Date(s.Date)==now.Date&&String.IsNullOrEmpty(s.End));}
         public static bool IsSettled(Config c,DateTime now){string at;return c.EarlyClosures.TryGetValue(now.ToString("yyyy-MM-dd"),out at)&&now>=Stamp(at);}
@@ -136,13 +154,13 @@ namespace SalaryPet {
         public static void UndoSettlement(Config c,DateTime now){c.EarlyClosures.Remove(now.ToString("yyyy-MM-dd"));}
         public static bool ShouldPrompt(Config c,DateTime now){
             return c.AskOvertime&&!IsSettled(c,now)&&now.Date>=Date(c.HireDate)&&Scheduled(c,now.Date)&&DayType(c,now.Date)!="请假"
-                &&now.TimeOfDay>=Time(c.PromptTime)&&!c.Decisions.ContainsKey(now.ToString("yyyy-MM-dd"));
+                &&now.TimeOfDay>=PromptToday(c,now)&&!c.Decisions.ContainsKey(now.ToString("yyyy-MM-dd"));
         }
         public static void Decide(Config c,DateTime now,bool yes){
             if(yes&&IsSettled(c,now))throw new Exception("今日已结算，请先撤销结算后再开始加班。");
             string day=now.ToString("yyyy-MM-dd");c.Decisions[day]=yes?"yes":"no";
             if(yes&&LiveSession(c,now)==null){
-                DateTime start=now.Date+Time(c.OvertimeStart);
+                DateTime start=now.Date+OvertimeStartToday(c,now);
                 if(c.Sessions.Any(s=>s.Date==day)&&now>start)start=now;
                 c.Sessions.Add(new Session{Date=day,Start=Stamp(start),End=""});
             }
@@ -184,15 +202,15 @@ namespace SalaryPet {
             if(now.Date<hire)r.State="尚未入职";
             else if(IsSettled(c,now))r.State="今日已结算 · 提前下班啦";
             else if(r.ActiveOvertime)r.State="加班中 · 记得适时休息";
-            else if(LiveSession(c,now)!=null&&now.TimeOfDay<Time(c.OvertimeStart))r.State=Time(c.OvertimeStart).ToString(@"hh\:mm")+" 开始加班计时";
+            else if(LiveSession(c,now)!=null&&now<Stamp(LiveSession(c,now).Start))r.State=Stamp(LiveSession(c,now).Start).ToString("HH:mm")+" 开始加班计时";
             else if(DayType(c,now.Date)=="请假")r.State="请假日 · 好好休息";
             else if(!Scheduled(c,now.Date))r.State="休息日 · 放松一下";
-            else if(now.TimeOfDay<Time(c.WorkStart)&&IsEarlyStarted(c,now))r.State="提前上班 · 每秒都算数";
+            else if(now.TimeOfDay<Time(c.WorkStart)&&IsEarlyStarted(c,now))r.State="提前上班 · "+WorkEndToday(c,now).ToString(@"hh\:mm")+" 下班";
             else if(now.TimeOfDay<Time(c.WorkStart))r.State="上班前 · 元气满满";
-            else if(now.TimeOfDay>=Time(c.WorkEnd))r.State="下班啦 · 今天辛苦了";
+            else if(now.TimeOfDay>=WorkEndToday(c,now))r.State="下班啦 · 今天辛苦了";
             else if(c.LunchEnabled&&now.TimeOfDay>=Time(c.LunchStart)&&now.TimeOfDay<Time(c.LunchEnd))r.State="午休中 · 收益暂停";
             else if(c.CapBase&&r.MonthBase>=c.MonthlySalary)r.State="本月基础收入已累计完成";
-            else r.State="工作中 · 每秒都算数";
+            else r.State=IsEarlyStarted(c,now)?"工作中 · "+WorkEndToday(c,now).ToString(@"hh\:mm")+" 下班":"工作中 · 每秒都算数";
             return r;
         }
         static void ApplyAttendance(Config c,Result r){
@@ -219,7 +237,7 @@ namespace SalaryPet {
                 }
                 r.AttendanceState="逐日累计（资格按已录考勤估算）";
             }else{
-                if(r.Now>=next.AddDays(-1)+Time(c.WorkEnd)){
+                if(r.Now>=next.AddDays(-1)+WorkEndToday(c,r.Now)){
                     DayPay last=r.Days.Last();last.Attendance=r.AttendancePotential;r.MonthAttendance=last.Attendance;r.AttendanceState="月底全勤已计入";
                 }else r.AttendanceState="全勤待月底结算";
             }
