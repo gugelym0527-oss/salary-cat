@@ -94,7 +94,7 @@ namespace SalaryPet {
                     clock.Show();Application.DoEvents();Button settle=clock.Controls.OfType<Button>().Single(b=>b.Text=="提前下班");settle.PerformClick();
                     verify(Payroll.IsSettled(ui,Payroll.ChinaNow())&&settle.Text=="撤销结算"&&Near(clock.DisplayedToday,clock.Current.DayRate),"主界面按钮一键结算并显示撤销入口");
                     foreach(Button b in clock.Controls.OfType<Button>().Where(b=>b.Top>140))verify(b.Height>=b.Font.Height+6&&clock.Region.IsVisible(b.Left,b.Top)&&clock.Region.IsVisible(b.Right-1,b.Bottom-1),"底部按钮完整可见："+b.Text);
-                    verify(clock.Controls.OfType<Button>().Count(b=>b.Top>140)==3&&!clock.Controls.OfType<Button>().Any(b=>b.Text=="明细"),"主界面仅显示设置、加班、提前下班");
+                    verify(clock.Controls.OfType<Button>().Count(b=>b.Top>140)==4&&!clock.Controls.OfType<Button>().Any(b=>b.Text=="明细"),"主界面显示设置、加班、提前上班、提前下班");
                     Art.Snapshot(clock,Path.Combine(folder,"提前下班-已结算.png"));clock.WindowState=FormWindowState.Minimized;
                     verify(clock.Text=="¥"+clock.DisplayedToday.ToString("F2",CultureInfo.InvariantCulture)&&clock.MoneyBar.Text==clock.Text,"任务栏立即同步结算金额");
                     clock.WindowState=FormWindowState.Normal;settle.PerformClick();verify(!Payroll.IsSettled(ui,Payroll.ChinaNow())&&settle.Text=="提前下班","撤销按钮恢复计时状态");
@@ -105,6 +105,59 @@ namespace SalaryPet {
             }finally{Store.PathName=old;}
             File.WriteAllLines(Path.Combine(folder,"提前下班验证结果.txt"),new[]{"全部通过："+checks.Count+"项提前结算与界面验证"}.Concat(checks),new UTF8Encoding(false));
         }
+        public static void EarlyStart(string folder){
+            Directory.CreateDirectory(folder);List<string> checks=new List<string>();
+            Action<bool,string> verify=delegate(bool ok,string label){if(!ok)throw new Exception(label);checks.Add(label);};
+            Config c=new Config{MonthlySalary=6000m,HireDate="2020-10-01",DoubleWeekMonday="2020-10-12",AttendanceEnabled=false,CapBase=false};
+            c.Overtime.Clear();DateTime at=new DateTime(2020,10,12,9,0,0);decimal day=6000m/21.75m;
+            Result before=Payroll.Calculate(c,at);Payroll.StartEarly(c,at);
+            verify(Near(Payroll.Calculate(c,at).Today.Base,0)&&Near(Payroll.Calculate(c,at.AddSeconds(1)).Today.Base,day/32400m),"从点击时刻开始每秒累计，不追计此前时间");
+            Result half=Payroll.Calculate(c,at.AddMinutes(30));
+            verify(Near(half.Today.Base,day/18m)&&Near(half.Month-before.Month,half.Today.Base)&&half.State.Contains("提前上班"),"早到半小时金额与月累计正确，显示提前上班状态");
+            verify(Near(Payroll.Calculate(c,at.AddHours(1)).Today.Base,day/9m)&&Near(Payroll.Calculate(c,at.AddHours(2)).Today.Base,day*2m/9m),"正常上班时间衔接连续，不重复计算");
+            verify(Near(Payroll.Calculate(c,at.AddHours(9)).Today.Base,day)&&Near(Payroll.Calculate(c,at.AddHours(14)).Today.Base,day),"提前达到全天日薪后封顶，关闭月封顶仍不超日薪");
+            verify(Near(half.Today.Overtime,0)&&Near(half.Today.Meal,0)&&c.Sessions.Count==0&&c.Decisions.Count==0,"提前上班不创建晚间加班、餐补或加班决定");
+            Payroll.StartEarly(c,at.AddMinutes(5));verify(c.EarlyStarts.Count==1&&c.EarlyStarts["2020-10-12"]==Payroll.Stamp(at),"重复操作不重置开工时间");
+            verify(!Payroll.IsEarlyStarted(c,at.AddDays(1))&&Near(Payroll.Calculate(c,at.AddDays(1)).Today.Base,0),"次日按正常作息开始，无早到状态延续");
+            Payroll.UndoEarlyStart(c,at.AddHours(2));verify(Near(Payroll.Calculate(c,at.AddHours(2)).Today.Base,day/9m),"正常上班后仍可撤销早到，恢复正常计薪");
+            c.LunchEnabled=true;Payroll.StartEarly(c,at);
+            verify(Near(Payroll.Calculate(c,at.AddHours(3)).Today.Base,day*3m/7.5m)&&Near(Payroll.Calculate(c,at.AddHours(4)).Today.Base,day*3m/7.5m),"扣午休模式维持正常时薪，午休暂停但保留早到收入");
+            verify(Near(Payroll.Calculate(c,at.AddHours(8)).Today.Base,day*6.5m/7.5m)&&Near(Payroll.Calculate(c,at.AddHours(10)).Today.Base,day),"扣午休模式全天仍以日薪封顶");
+            c.Mode="calendar";c.LunchEnabled=false;decimal calendarDay=6000m/Payroll.CalendarDays(c,at);
+            verify(Near(Payroll.Calculate(c,at.AddHours(1)).Today.Base,calendarDay/9m),"日历折算模式正确使用当月分母");
+            c.CompanyDays["2020-10"]=1m;c.CapBase=true;verify(Near(Payroll.Calculate(c,at.AddHours(1)).MonthBase,6000m),"早到计薪仍遵守月薪封顶");c.CompanyDays.Clear();c.Mode="fixed";c.CapBase=false;
+            c.AttendanceEnabled=true;c.AttendanceMode="monthly";verify(Near(Payroll.Calculate(c,at.AddHours(1)).MonthAttendance,0),"月底全勤奖不因早到提前发放");
+            c.AttendanceMode="daily";verify(Near(Payroll.Calculate(c,at.AddHours(14)).Today.Attendance,c.AttendanceBonus/21.75m),"逐日全勤不会因早到多计一天");c.AttendanceEnabled=false;
+            Payroll.Settle(c,at.AddMinutes(30));verify(Payroll.IsSettled(c,at.AddMinutes(30))&&Near(Payroll.Calculate(c,at.AddMinutes(30)).Today.Base,day),"已提前开工可在正常上班时间前提前下班结算");
+            bool rejected=false;try{Payroll.UndoEarlyStart(c,at.AddMinutes(30));}catch{rejected=true;}verify(rejected,"已结算时先撤销结算，再撤销提前上班");
+            Payroll.UndoSettlement(c,at.AddMinutes(30));verify(Near(Payroll.Calculate(c,at.AddMinutes(30)).Today.Base,day/18m),"撤销结算保留早到并恢复实时金额");
+            Payroll.UndoEarlyStart(c,at);rejected=false;try{Payroll.StartEarly(c,at.AddHours(1));}catch{rejected=true;}verify(rejected,"正常上班后不能追记提前上班");
+            rejected=false;try{Payroll.StartEarly(c,at.AddDays(-1));}catch{rejected=true;}verify(rejected,"休息日禁止提前上班");
+            c.Calendar.Add(new DayRule{Date="2020-10-13",Kind="leave"});rejected=false;try{Payroll.StartEarly(c,at.AddDays(1));}catch{rejected=true;}verify(rejected,"请假日禁止提前上班");
+            c.HireDate="2020-10-13";verify(!Payroll.CanStartEarly(c,at),"入职前禁止提前上班");c.HireDate="2020-10-01";Payroll.StartEarly(c,at);
+            c.WorkStart="08:00";verify(Near(Payroll.Calculate(c,at).Today.Base,day/11m),"修改正常上班时间不会产生负计薪时长");c.WorkStart="10:00";
+            string old=Store.PathName;Store.PathName=Path.Combine(folder,"提前上班测试配置.json");
+            try{
+                Store.Save(c);Config loaded=Store.Load();verify(Payroll.IsEarlyStarted(loaded,at)&&Near(Payroll.Calculate(loaded,at.AddMinutes(30)).Today.Base,day/18m),"保存重启后保留开工时间及金额");
+                loaded.EarlyStarts=null;string json=new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(loaded);File.WriteAllText(Store.PathName,json);verify(Store.Load().EarlyStarts!=null,"兼容空提前上班字段");
+                File.WriteAllText(Store.PathName,json.Replace("\"EarlyStarts\":null,","").Replace(",\"EarlyStarts\":null",""));verify(Store.Load().EarlyStarts.Count==0,"兼容尚无提前上班字段的旧配置");
+                DateTime now=Payroll.ChinaNow();Config ui=new Config{MonthlySalary=6000m,HireDate="2020-01-01",AttendanceEnabled=false,AskOvertime=false,CapBase=false,WorkStart="23:58",WorkEnd="23:59",OvertimeStart="23:59",PromptTime="23:59"};ui.Overtime.Clear();ui.Calendar.Add(new DayRule{Date=now.ToString("yyyy-MM-dd"),Kind="work"});Store.Save(ui);
+                using(ClockForm clock=new ClockForm(ui,true)){
+                    clock.Show();Application.DoEvents();Button start=clock.Controls.OfType<Button>().Single(b=>b.Text=="提前上班");
+                    if(Payroll.CanStartEarly(ui,now)){
+                        verify(start.Enabled,"上班前主界面提前上班按钮可用");start.PerformClick();verify(Payroll.IsEarlyStarted(ui,Payroll.ChinaNow())&&start.Text=="撤销早到"&&Store.Load().EarlyStarts.Count==1,"真实按钮点击保存早到并提供撤销");
+                        Thread.Sleep(1100);clock.Tick();verify(clock.DisplayedToday>0,"真实开工后金额随时间增长");
+                        clock.WindowState=FormWindowState.Minimized;verify(clock.Text=="¥"+clock.DisplayedToday.ToString("F2",CultureInfo.InvariantCulture)&&clock.MoneyBar.Text==clock.Text,"任务栏和金额条同步早到工资");clock.WindowState=FormWindowState.Normal;
+                        Art.Snapshot(clock,Path.Combine(folder,"提前上班-计时中.png"));start.PerformClick();verify(!Payroll.IsEarlyStarted(ui,Payroll.ChinaNow())&&start.Text=="提前上班"&&Near(clock.DisplayedToday,0),"真实撤销按钮恢复正常上班前的零收入");
+                    }else verify(!start.Enabled,"当日正常上班时间后提前上班按钮禁用");
+                    Button[] buttons=clock.Controls.OfType<Button>().Where(b=>b.Top>140).OrderBy(b=>b.Left).ToArray();verify(buttons.Length==4&&!buttons.Any(b=>b.Text=="明细"),"主界面四个功能按钮，明细保留设置中");
+                    for(int i=0;i<buttons.Length;i++){Button b=buttons[i];verify(b.Height>=b.Font.Height+6&&TextRenderer.MeasureText(b.Text,b.Font,Size.Empty,TextFormatFlags.NoPadding).Width<=b.Width-2&&clock.Region.IsVisible(b.Left,b.Top)&&clock.Region.IsVisible(b.Right-1,b.Bottom-1)&&(i==0||buttons[i-1].Right<=b.Left),"按钮文字和边界完整且互不重叠："+b.Text);}
+                    Art.Snapshot(clock,Path.Combine(folder,"提前上班-主界面.png"));clock.Close();
+                }
+            }finally{Store.PathName=old;}
+            File.WriteAllLines(Path.Combine(folder,"提前上班验证结果.txt"),new[]{"全部通过："+checks.Count+"项提前开工与界面验证"}.Concat(checks),new UTF8Encoding(false));
+        }
+
         public static void Run(){
             Config c=Reference();c.LunchEnabled=true;Payroll.Validate(c);
             Check(!Payroll.Scheduled(c,At(17,0))&&Payroll.Scheduled(c,At(10,0))&&!Payroll.Scheduled(c,At(11,0)),"单双休锚点与跨周计算");

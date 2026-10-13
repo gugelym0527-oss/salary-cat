@@ -139,7 +139,7 @@ namespace SalaryPet {
     public class ClockForm:Form {
         public Config Config;public Result Current;public readonly bool Preview;
         public MoneyBarForm MoneyBar{get;private set;}
-        Timer timer,reactionTimer;NotifyIcon tray;ContextMenuStrip menu;Image wallpaper;PetButton overtime,earlyLeave;
+        Timer timer,reactionTimer;NotifyIcon tray;ContextMenuStrip menu;Image wallpaper;PetButton overtime,earlyLeave,earlyStart;
         readonly CatReaction reaction=new CatReaction();
         readonly System.Diagnostics.Stopwatch reactionClock=System.Diagnostics.Stopwatch.StartNew();
         public static readonly Rectangle CatBounds=new Rectangle(172,28,47,30);
@@ -156,11 +156,12 @@ namespace SalaryPet {
             PetButton min=new PetButton("−"){Bounds=new Rectangle(177,7,20,19)},close=new PetButton("×"){Bounds=new Rectangle(201,7,20,19)};
             min.AccessibleName="最小化到任务栏，标题显示今日金额";min.Click+=delegate{ShowInTaskbar=true;WindowState=FormWindowState.Minimized;};
             close.AccessibleName=c.CloseToTray?"收起到系统托盘":"退出工资桌宠";close.Click+=delegate{Close();};
-            PetButton settings=new PetButton("设置"){Bounds=new Rectangle(12,164,55,23)};settings.Click+=delegate{OpenSettings();};
-            overtime=new PetButton("加班"){Bounds=new Rectangle(73,164,55,23)};overtime.Click+=delegate{ToggleOvertime();};
-            earlyLeave=new PetButton("提前下班"){Bounds=new Rectangle(134,164,84,23),AccessibleName="提前下班，立即结算全天底薪和已完成加班"};earlyLeave.Click+=delegate{ToggleSettlement();};
-            foreach(PetButton button in new[]{min,close,settings,overtime,earlyLeave}){button.Font=new Font("Microsoft YaHei UI",10f,FontStyle.Regular,GraphicsUnit.Pixel);button.Padding=Padding.Empty;button.TextAlign=ContentAlignment.MiddleCenter;}
-            Controls.AddRange(new Control[]{min,close,settings,overtime,earlyLeave});
+            PetButton settings=new PetButton("设置"){Bounds=new Rectangle(12,164,34,23)};settings.Click+=delegate{OpenSettings();};
+            overtime=new PetButton("加班"){Bounds=new Rectangle(48,164,44,23)};overtime.Click+=delegate{ToggleOvertime();};
+            earlyLeave=new PetButton("提前下班"){Bounds=new Rectangle(156,164,62,23),AccessibleName="提前下班，立即结算全天底薪和已完成加班"};earlyLeave.Click+=delegate{ToggleSettlement();};
+            earlyStart=new PetButton("提前上班"){Bounds=new Rectangle(94,164,60,23),AccessibleName="提前上班，从现在起累计底薪，全天以日薪封顶"};earlyStart.Click+=delegate{ToggleEarlyStart();};
+            foreach(PetButton button in new[]{min,close,settings,overtime,earlyStart,earlyLeave}){button.Font=new Font("Microsoft YaHei UI",10f,FontStyle.Regular,GraphicsUnit.Pixel);button.Padding=Padding.Empty;button.TextAlign=ContentAlignment.MiddleCenter;}
+            Controls.AddRange(new Control[]{min,close,settings,overtime,earlyStart,earlyLeave});
             menu=new ContextMenuStrip();menu.Items.Add("显示桌宠",null,delegate{Restore();});menu.Items.Add("设置",null,delegate{Restore();OpenSettings();});
             menu.Items.Add("工资明细 / 导出",null,delegate{using(DetailForm f=new DetailForm(Config))f.ShowDialog();});menu.Items.Add("开始 / 结束加班",null,delegate{ToggleOvertime();});
             menu.Items.Add(new ToolStripSeparator());menu.Items.Add("退出",null,delegate{ExitPet();});
@@ -217,6 +218,9 @@ namespace SalaryPet {
             tray.Text=money;overtime.Text=Payroll.LiveSession(Config,now)==null?"加班":"结束加班";
             bool settled=Payroll.IsSettled(Config,now);earlyLeave.Text=settled?"撤销结算":"提前下班";
             earlyLeave.Enabled=settled||Payroll.CanSettle(Config,now);overtime.Enabled=!settled;
+            bool started=Payroll.IsEarlyStarted(Config,now);earlyStart.Text=started?"撤销早到":"提前上班";
+            earlyStart.Enabled=!settled&&(started||Payroll.CanStartEarly(Config,now));
+            earlyStart.AccessibleName=started?"撤销今日提前上班，重新按正常作息计算底薪":"提前上班，从现在起累计底薪，全天以日薪封顶";
             earlyLeave.AccessibleName=settled?"撤销今日结算，恢复按实际时间计薪":"提前下班，立即结算全天底薪和已完成加班";
             AccessibleDescription="今日已赚 "+money+"；本月累计 "+Current.Month.ToString("F2")+"；"+ReactionText;
             if(WindowState!=FormWindowState.Minimized)Invalidate();
@@ -233,6 +237,13 @@ namespace SalaryPet {
                 }
             }catch(Exception ex){MessageBox.Show("无法保存加班选择："+ex.Message,"工资桌宠");}
             finally{promptOpen=false;Current=Payroll.Calculate(Config,Payroll.ChinaNow());Invalidate();}
+        }
+        public void ToggleEarlyStart(){
+            try{
+                DateTime now=Payroll.ChinaNow();
+                Store.Change(Config,delegate{if(Payroll.IsEarlyStarted(Config,now))Payroll.UndoEarlyStart(Config,now);else Payroll.StartEarly(Config,now);});
+                Tick();
+            }catch(Exception ex){MessageBox.Show("提前上班操作未保存："+ex.Message,"工资桌宠");}
         }
         public void ToggleSettlement(){
             try{

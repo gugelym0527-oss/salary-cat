@@ -36,6 +36,7 @@ namespace SalaryPet {
         public List<Overtime> Overtime {get;set;} public List<DayRule> Calendar {get;set;}
         public List<Session> Sessions {get;set;} public Dictionary<string,string> Decisions {get;set;}
         public Dictionary<string,string> EarlyClosures {get;set;}
+        public Dictionary<string,string> EarlyStarts {get;set;}
         public Config() {
             DateTime today=Payroll.ChinaNow().Date;Version=3;MonthlySalary=6000m;HireDate=new DateTime(today.Year,today.Month,1).ToString("yyyy-MM-dd");DoubleWeekMonday=today.AddDays(-(((int)today.DayOfWeek+6)%7)).ToString("yyyy-MM-dd");AnchorIsDouble=true;
             Schedule="alternate";SingleRestDay=0;DoubleRestDay1=6;DoubleRestDay2=0;
@@ -48,6 +49,7 @@ namespace SalaryPet {
             BackgroundColor="#FFFFFF";BackgroundImage="";BackgroundFit="cover";PanelOpacity=94;Decimals=2;Left=-1;Top=-1;
             CompanyDays=new Dictionary<string,decimal>(); Calendar=new List<DayRule>();Sessions=new List<Session>();Decisions=new Dictionary<string,string>();
             EarlyClosures=new Dictionary<string,string>();
+            EarlyStarts=new Dictionary<string,string>();
             Overtime=new List<Overtime>();
         }
     }
@@ -95,7 +97,7 @@ namespace SalaryPet {
             if(c.LunchEnabled)total-=(decimal)(Time(c.LunchEnd)-Time(c.LunchStart)).TotalSeconds;return total;
         }
         static decimal Segment(DateTime day,DateTime now,TimeSpan start,TimeSpan end){
-            DateTime a=day+start,b=day+end;if(now<=a)return 0;
+            DateTime a=day+start,b=day+end;if(now<=a||end<=start)return 0;
             return (decimal)((now<b?now:b)-a).Ticks/TimeSpan.TicksPerSecond;
         }
         public static decimal Worked(Config c,DateTime d,DateTime now){
@@ -103,15 +105,28 @@ namespace SalaryPet {
             if(d<Date(c.HireDate)||!Scheduled(c,d)||(rule!=null&&rule.Kind=="leave"))return 0;
             string settledAt;
             if(c.EarlyClosures.TryGetValue(d.ToString("yyyy-MM-dd"),out settledAt)&&now>=Stamp(settledAt))return DailySeconds(c);
-            if(!c.LunchEnabled)return Segment(d,now,Time(c.WorkStart),Time(c.WorkEnd));
-            return Segment(d,now,Time(c.WorkStart),Time(c.LunchStart))+Segment(d,now,Time(c.LunchEnd),Time(c.WorkEnd));
+            string earlyAt;decimal early=0;
+            if(c.EarlyStarts.TryGetValue(d.ToString("yyyy-MM-dd"),out earlyAt))early=Segment(d,now,Stamp(earlyAt).TimeOfDay,Time(c.WorkStart));
+            if(!c.LunchEnabled)return Math.Min(DailySeconds(c),early+Segment(d,now,Time(c.WorkStart),Time(c.WorkEnd)));
+            return Math.Min(DailySeconds(c),early+Segment(d,now,Time(c.WorkStart),Time(c.LunchStart))+Segment(d,now,Time(c.LunchEnd),Time(c.WorkEnd)));
+        }
+        public static bool IsEarlyStarted(Config c,DateTime now){string at;return c.EarlyStarts.TryGetValue(now.ToString("yyyy-MM-dd"),out at)&&now>=Stamp(at);}
+        public static bool CanStartEarly(Config c,DateTime now){return now.Date>=Date(c.HireDate)&&Scheduled(c,now.Date)&&DayType(c,now.Date)!="请假"&&now.TimeOfDay<Time(c.WorkStart)&&!IsSettled(c,now);}
+        public static void StartEarly(Config c,DateTime now){
+            if(IsEarlyStarted(c,now))return;
+            if(!CanStartEarly(c,now))throw new Exception("仅应出勤日的正常上班时间前可提前上班，请假日不适用。");
+            c.EarlyStarts[now.ToString("yyyy-MM-dd")]=Stamp(now);
+        }
+        public static void UndoEarlyStart(Config c,DateTime now){
+            if(IsSettled(c,now))throw new Exception("今日已结算，请先撤销结算后再撤销提前上班。");
+            c.EarlyStarts.Remove(now.ToString("yyyy-MM-dd"));
         }
         public static Session LiveSession(Config c,DateTime now){return c.Sessions.LastOrDefault(s=>Date(s.Date)==now.Date&&String.IsNullOrEmpty(s.End));}
         public static bool IsSettled(Config c,DateTime now){string at;return c.EarlyClosures.TryGetValue(now.ToString("yyyy-MM-dd"),out at)&&now>=Stamp(at);}
-        public static bool CanSettle(Config c,DateTime now){return now.Date>=Date(c.HireDate)&&Scheduled(c,now.Date)&&DayType(c,now.Date)!="请假"&&now.TimeOfDay>=Time(c.WorkStart);}
+        public static bool CanSettle(Config c,DateTime now){return now.Date>=Date(c.HireDate)&&Scheduled(c,now.Date)&&DayType(c,now.Date)!="请假"&&(now.TimeOfDay>=Time(c.WorkStart)||IsEarlyStarted(c,now));}
         public static void Settle(Config c,DateTime now){
             if(IsSettled(c,now))return;
-            if(!CanSettle(c,now))throw new Exception("仅上班后的应出勤日可以提前结算，请假日不适用。");
+            if(!CanSettle(c,now))throw new Exception("仅已上班的应出勤日可以提前结算，请假日不适用。");
             foreach(Session s in c.Sessions.Where(s=>Date(s.Date)==now.Date&&String.IsNullOrEmpty(s.End))){
                 DateTime start=Stamp(s.Start),end=now<start?start:now;
                 if(end>now.Date.AddDays(1))end=now.Date.AddDays(1);s.End=Stamp(end);
@@ -148,6 +163,7 @@ namespace SalaryPet {
                 if(d<=now.Date&&d>=hire){
                     decimal seconds=Worked(c,d,now);pay.WorkHours=seconds/3600m;
                     string settledAt;if(c.EarlyClosures.TryGetValue(d.ToString("yyyy-MM-dd"),out settledAt)&&now>=Stamp(settledAt)&&seconds>0)pay.Type+=" · 提前结算";
+                    string earlyAt;if(c.EarlyStarts.TryGetValue(d.ToString("yyyy-MM-dd"),out earlyAt)&&now>=Stamp(earlyAt)&&seconds>0)pay.Type+=" · 提前上班";
                     decimal raw=seconds/DailySeconds(c)*r.DayRate;
                     pay.Base=c.CapBase?Math.Min(Math.Max(0,remaining),raw):raw;remaining-=pay.Base;
                     decimal manual=c.Overtime.Where(o=>Date(o.Date)==d&&o.Hours>0).Sum(o=>o.Hours);
@@ -171,6 +187,7 @@ namespace SalaryPet {
             else if(LiveSession(c,now)!=null&&now.TimeOfDay<Time(c.OvertimeStart))r.State=Time(c.OvertimeStart).ToString(@"hh\:mm")+" 开始加班计时";
             else if(DayType(c,now.Date)=="请假")r.State="请假日 · 好好休息";
             else if(!Scheduled(c,now.Date))r.State="休息日 · 放松一下";
+            else if(now.TimeOfDay<Time(c.WorkStart)&&IsEarlyStarted(c,now))r.State="提前上班 · 每秒都算数";
             else if(now.TimeOfDay<Time(c.WorkStart))r.State="上班前 · 元气满满";
             else if(now.TimeOfDay>=Time(c.WorkEnd))r.State="下班啦 · 今天辛苦了";
             else if(c.LunchEnabled&&now.TimeOfDay>=Time(c.LunchStart)&&now.TimeOfDay<Time(c.LunchEnd))r.State="午休中 · 收益暂停";
@@ -208,6 +225,7 @@ namespace SalaryPet {
             }
         }
         public static void Validate(Config c){
+            foreach(var item in c.EarlyStarts){DateTime d=Date(item.Key),at=Stamp(item.Value);if(at.Date!=d)throw new Exception("提前上班日期与时间不一致。");}
             foreach(var item in c.EarlyClosures){DateTime d=Date(item.Key),at=Stamp(item.Value);if(at.Date!=d)throw new Exception("提前结算日期与时间不一致。");}
             if(c.MonthlySalary<=0||c.MonthlySalary>10000000m)throw new Exception("底薪需大于0且不超过1000万元。");
             if(c.AttendanceBonus<0||c.AttendanceBonus>10000000m||(c.AttendanceMode!="daily"&&c.AttendanceMode!="monthly"))throw new Exception("全勤金额或计入方式无效。");
@@ -245,6 +263,7 @@ namespace SalaryPet {
         public static Config Load(){
             Config c=File.Exists(PathName)?new JavaScriptSerializer().Deserialize<Config>(File.ReadAllText(PathName,Encoding.UTF8)):new Config();
             if(c==null)throw new Exception("配置文件为空。");
+            if(c.EarlyStarts==null)c.EarlyStarts=new Dictionary<string,string>();
             if(c.EarlyClosures==null)c.EarlyClosures=new Dictionary<string,string>();
             if(c.CompanyDays==null)c.CompanyDays=new Dictionary<string,decimal>();if(c.Calendar==null)c.Calendar=new List<DayRule>();
             if(c.Sessions==null)c.Sessions=new List<Session>();if(c.Decisions==null)c.Decisions=new Dictionary<string,string>();if(c.Overtime==null)c.Overtime=new List<Overtime>();
