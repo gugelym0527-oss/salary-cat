@@ -152,7 +152,13 @@ namespace SalaryPet {
                     }else verify(!start.Enabled,"当日正常上班时间后提前上班按钮禁用");
                     Button[] buttons=clock.Controls.OfType<Button>().Where(b=>b.Top>140).OrderBy(b=>b.Left).ToArray();verify(buttons.Length==4&&!buttons.Any(b=>b.Text=="明细"),"主界面四个功能按钮，明细保留设置中");
                     for(int i=0;i<buttons.Length;i++){Button b=buttons[i];verify(b.Height>=b.Font.Height+6&&TextRenderer.MeasureText(b.Text,b.Font,Size.Empty,TextFormatFlags.NoPadding).Width<=b.Width-2&&clock.Region.IsVisible(b.Left,b.Top)&&clock.Region.IsVisible(b.Right-1,b.Bottom-1)&&(i==0||buttons[i-1].Right<=b.Left),"按钮文字和边界完整且互不重叠："+b.Text);}
-                    Art.Snapshot(clock,Path.Combine(folder,"提前上班-主界面.png"));clock.Close();
+                    Art.Snapshot(clock,Path.Combine(folder,"提前上班-主界面.png"));
+                    string[] longest={"设置","结束加班","撤销早到","撤销结算"};
+                    for(int i=0;i<buttons.Length;i++){
+                        buttons[i].Text=longest[i];
+                        using(Graphics g=buttons[i].CreateGraphics())verify(TextRenderer.MeasureText(g,longest[i],buttons[i].Font).Width<=buttons[i].Width-2,"完整按钮文字含绘制留白可容纳："+longest[i]);
+                    }
+                    Art.Snapshot(clock,Path.Combine(folder,"提前上班-按钮文字.png"));clock.Close();
                 }
             }finally{Store.PathName=old;}
             File.WriteAllLines(Path.Combine(folder,"提前上班验证结果.txt"),new[]{"全部通过："+checks.Count+"项提前开工与界面验证"}.Concat(checks),new UTF8Encoding(false));

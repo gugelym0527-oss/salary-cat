@@ -156,11 +156,12 @@ namespace SalaryPet {
             PetButton min=new PetButton("−"){Bounds=new Rectangle(177,7,20,19)},close=new PetButton("×"){Bounds=new Rectangle(201,7,20,19)};
             min.AccessibleName="最小化到任务栏，标题显示今日金额";min.Click+=delegate{ShowInTaskbar=true;WindowState=FormWindowState.Minimized;};
             close.AccessibleName=c.CloseToTray?"收起到系统托盘":"退出工资桌宠";close.Click+=delegate{Close();};
-            PetButton settings=new PetButton("设置"){Bounds=new Rectangle(12,164,34,23)};settings.Click+=delegate{OpenSettings();};
-            overtime=new PetButton("加班"){Bounds=new Rectangle(48,164,44,23)};overtime.Click+=delegate{ToggleOvertime();};
-            earlyLeave=new PetButton("提前下班"){Bounds=new Rectangle(156,164,62,23),AccessibleName="提前下班，立即结算全天底薪和已完成加班"};earlyLeave.Click+=delegate{ToggleSettlement();};
-            earlyStart=new PetButton("提前上班"){Bounds=new Rectangle(94,164,60,23),AccessibleName="提前上班，从现在起累计底薪，全天以日薪封顶"};earlyStart.Click+=delegate{ToggleEarlyStart();};
+            PetButton settings=new PetButton("设置"){Bounds=new Rectangle(12,164,40,23)};settings.Click+=delegate{OpenSettings();};
+            overtime=new PetButton("加班"){Bounds=new Rectangle(54,164,48,23)};overtime.Click+=delegate{ToggleOvertime();};
+            earlyLeave=new PetButton("提前下班"){Bounds=new Rectangle(162,164,56,23),AccessibleName="提前下班，立即结算全天底薪和已完成加班"};earlyLeave.Click+=delegate{ToggleSettlement();};
+            earlyStart=new PetButton("提前上班"){Bounds=new Rectangle(104,164,56,23),AccessibleName="提前上班，从现在起累计底薪，全天以日薪封顶"};earlyStart.Click+=delegate{ToggleEarlyStart();};
             foreach(PetButton button in new[]{min,close,settings,overtime,earlyStart,earlyLeave}){button.Font=new Font("Microsoft YaHei UI",10f,FontStyle.Regular,GraphicsUnit.Pixel);button.Padding=Padding.Empty;button.TextAlign=ContentAlignment.MiddleCenter;}
+            overtime.Font=new Font("Microsoft YaHei UI",9f,FontStyle.Regular,GraphicsUnit.Pixel);
             Controls.AddRange(new Control[]{min,close,settings,overtime,earlyStart,earlyLeave});
             menu=new ContextMenuStrip();menu.Items.Add("显示桌宠",null,delegate{Restore();});menu.Items.Add("设置",null,delegate{Restore();OpenSettings();});
             menu.Items.Add("工资明细 / 导出",null,delegate{using(DetailForm f=new DetailForm(Config))f.ShowDialog();});menu.Items.Add("开始 / 结束加班",null,delegate{ToggleOvertime();});
